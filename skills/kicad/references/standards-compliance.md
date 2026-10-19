@@ -2,7 +2,9 @@
 
 Reference tables and formulas for checking PCB designs against industry standards. All values are verified from the actual standard documents (source noted for each table). Values marked **[UNVERIFIED]** are from secondary sources and need primary document confirmation.
 
-**When to use this reference:** Automatically for professional/industrial designs — projects with: 4+ layer boards, controlled impedance, high voltage (>50V), safety-critical functions, CE/UL certification targets, medical/automotive/aerospace applications, or any project where the user mentions standards compliance. For hobby/prototype boards, reference only when the user asks or when a specific concern (e.g., high voltage spacing) warrants it.
+**When to use this reference:** Select the relevant sections using [review applicability](review-applicability.md). Use them for an actual conductor-current, spacing, insulation, impedance, fabrication, or product-standard requirement. Layer count and labels such as industrial, hobby, or prototype alone neither mandate a standards campaign nor exempt a circuit from a relevant check. Identify the product requirement, operating conditions, applicable standard/edition, and authoritative source before assigning acceptance limits.
+
+The verification labels below describe the recorded source basis of these reference tables. They do not establish that a historical edition applies to the current product or replace the primary document needed for a compliance claim. Where an unverified approximation affects the selected decision, obtain suitable evidence or state that limit; its impact depends on the actual circuit and margin.
 
 ## Verification Status
 
@@ -63,10 +65,12 @@ Three product classes determine acceptable imperfection levels. Source: IPC-A-60
 | 2 | Dedicated Service Electronic Products | High performance and extended life required; uninterrupted service desired but not critical; cosmetic imperfections allowed | Communications equipment, business machines, instruments |
 | 3 | High Reliability Electronic Products | Continued performance or on-demand performance critical; equipment downtime not tolerable; must function when required | Life support, flight control, military, medical implants |
 
-**How to determine class from a design:** Look for indicators in the schematic/BOM:
-- Medical ICs, MIL-spec parts, automotive-grade parts → likely Class 3
-- Industrial MCUs, commercial-grade with redundancy → likely Class 2
-- ESP32/Arduino, consumer-grade parts, 2-layer hobby boards → likely Class 1
+**How to establish the applicable class:** Use documented customer, product,
+fabrication, and assembly requirements. Record the relevant standard and
+edition. If the required class is unspecified and matters to the requested
+decision, leave it unresolved rather than inferring it from an MCU family,
+component grade, application label, or layer count. Keep IPC workmanship
+classification distinct from product electrical-safety classifications.
 
 ---
 

@@ -33,7 +33,7 @@ description: >-
 | `spice` | SPICE simulation verification of detected subcircuits |
 | `emc` | EMC pre-compliance risk analysis — consumes schematic + PCB analyzer output |
 
-**Handoff guidance:** Use this skill to parse schematics/PCBs and extract structured data. Hand off to `bom` for BOM enrichment, pricing, and ordering. Hand off to `digikey`/`mouser`/`lcsc`/`element14` for part searches and datasheet fetching. Hand off to `jlcpcb`/`pcbway` for fabrication ordering and DFM rule validation. **Always run `spice`** for simulation verification during design reviews when any SPICE simulator is installed (check with `which ngspice ltspice xyce`). **Always run `emc`** for EMC pre-compliance risk analysis during design reviews when both schematic and PCB analysis are available. These are not optional — skipping them leaves value-computation errors and EMC risks undetected.
+**Handoff guidance:** Use this skill to parse schematics/PCBs and extract structured data. Hand off to `bom` for BOM enrichment, pricing, and ordering; to distributor skills for needed part evidence; and to fabrication skills for the selected manufacturing process. Select SPICE, thermal, timing/signal-integrity, and EMC work from the actual circuit and requested decision, using [review applicability](references/review-applicability.md). An installed simulator or the presence of schematic/PCB JSON is an input prerequisite, not a reason to require a check.
 
 **Before analysis:** When the user asks to analyze or review a KiCad project, check whether a `datasheets/` directory exists in the project. If not, and DigiKey API keys are available (`DIGIKEY_CLIENT_ID`), offer to sync datasheets first: "I can download datasheets for your components before analysis — this enables pin-level verification and decoupling validation against manufacturer specs. Want me to sync them?" If the user declines or no API keys are set, proceed without datasheets — the analysis works without them but datasheet verification findings won't be available.
 
@@ -45,40 +45,34 @@ When the user asks for a **design review**, **complete report**, **ready-to-fab 
 
 1. Read the full workflow in this `SKILL.md`, not just the analyzer command sections.
 2. Read `references/report-generation.md` before writing the report.
-3. Run every applicable analyzer for the files present in the project, then say explicitly which ones were and were not run.
+3. Read [review applicability](references/review-applicability.md). Establish a separate scope and check selection for each PCB/revision from its circuit, operating conditions, and requested decision. Choose analyzers only after identifying the requirement they help assess.
 4. Perform raw-file and datasheet cross-verification before claiming anything is "verified".
 5. Triage likely analyzer false positives before elevating them into blockers.
 6. If a required step could not be done, state it as a review gap, not as silent omission.
 
 Treat this as the minimum bar. Analyzer JSON alone is not the final review.
 
-### Minimum Review Checklist
+### Board-Specific Review Checklist
 
-For a full design review, explicitly account for each item below in the report:
+- Identify each PCB/revision, circuit function, relevant supply/load conditions, interfaces, environment, and review stage. Assess shared system boundaries where they affect a board.
+- For selected checks, record circuit evidence, the failure mode or requirement, acceptance criterion/source, method, and result. Keep unresolved requirements separate from evidence-supported exclusions.
+- Check basic correctness within scope: pinouts/footprints, intended connectivity/polarity, relevant ratings, schematic/PCB agreement, and applicable native ERC/DRC and mechanical constraints. Use schematic/PCB/cross analyzers where they support those checks; request `--full` when the selected work needs detailed geometry.
+- Screen thermal/power, timing/signal integrity, PWM/switching, analog dynamics, EMC/ESD, protection, and leakage using the applicability reference. Use inspection or calculation when adequate; escalate to simulation or measurement for unresolved requirements.
+- Check fabrication outputs when manufacturing readiness is in scope; check lifecycle/sourcing when procurement or production-life requirements justify it.
+- Compare against prior evidence when reviewing a revision. Rerun affected checks and dependencies rather than an unchanged full suite.
+- State findings, evidence, relevant false positives, remaining applicable verification gaps, and the limits of the requested readiness decision.
 
-- `datasheets/` present, synced, or verification gap stated
-- `analyze_schematic.py`
-- `analyze_pcb.py --full`
-- `cross_analysis.py`
-- `analyze_emc.py`
-- SPICE simulation when any simulator is installed
-- `analyze_thermal.py` when both schematic and PCB JSON exist
-- `analyze_gerbers.py` when fabrication outputs exist
-- lifecycle audit when network access and MPN coverage allow it
-- prior review / prior run delta check
-- raw schematic/PCB spot-verification elevated to full verification for critical parts
-- explicit report sections for blockers, verification basis, false positives, and skipped analyses
-
-If an item is not applicable, say why. If it was skipped, say why. If it failed, say how that limits confidence.
+An unrun analyzer is not itself a gap if another adequate method resolves the requirement. Missing inputs are **unresolved**, not **not applicable**. A full review covers the applicable requirements; it does not need a result from every available tool.
 
 ### Common Review Failure Modes
 
 These are the failure modes this contract is meant to prevent:
 
-- Stopping after schematic + PCB + EMC output and calling it a complete review
+- Calling analyzer output a complete review without assessing the board's applicable requirements
 - Reporting analyzer findings without checking whether they are expected layout artifacts
 - Claiming "verified" without direct datasheet evidence or structured extraction evidence
-- Omitting thermal, lifecycle, prior-review delta, or gerber checks without disclosure
+- Requiring thermal, timing, SPICE, EMC, lifecycle, or Gerber work solely because a tool or input file exists
+- Omitting an applicable requirement without disclosure, or labeling missing data as not applicable
 - Writing a report that lacks a verdict, blockers table, verification basis, or skipped-analysis notes
 - Reading only the first part of this skill and missing the design-review workflow later in the file
 
@@ -407,29 +401,27 @@ directory, generator, layer_count, statistics, completeness, alignment,
 drill_classification, pad_summary, board_dimensions, gerbers, drills
 ```
 
-**Workflow:** When analyzing a KiCad project, scan the project directory for all available file types and run **every applicable analyzer** — not just the one the user mentioned. A complete analysis uses all the data available. Use `--analysis-dir analysis/` on all analyzers to share a single run folder tracked by the manifest. For one-off runs without cache tracking, use `--output file.json` instead.
+**Workflow:** Select checks separately for each PCB/revision using [review applicability](references/review-applicability.md). Keep targeted requests targeted. For a full review, assess basic correctness and the relevant domain risks before selecting tools. Use `--analysis-dir analysis/` to share a run folder tracked by the manifest; keep evidence for different boards/revisions distinguishable. For one-off runs without cache tracking, use `--output file.json` instead.
 
 **Before starting the workflow below for a design review:** read `references/report-generation.md`. The report structure, verification basis rules, skipped-analysis disclosure, and false-positive triage expectations there are part of the review workflow, not optional polish added at the end.
 
-1. **Scan the project directory** for `.kicad_sch`, `.kicad_pcb`, `.kicad_pro`, gerber directories, and `.net`/`.xml` netlist files.
-2. **Sync datasheets** (see Datasheet Acquisition below) — this is a prerequisite for verification, not optional. Without datasheets, all subsequent verification is reduced to internal consistency checks — confirming the design agrees with itself, not that it's correct. Run the sync before reading any analyzer output. If sync fails or no API keys are available, use fallback methods (Datasheet property URLs, individual downloads via `digikey` skill, ask the user). If critical IC datasheets can't be obtained, note this prominently in the report as a verification gap.
-3. **Run the core analyzers.** If the schematic exists, run `analyze_schematic.py`. If the PCB exists, run `analyze_pcb.py --full`. If gerbers exist, run `analyze_gerbers.py`. Run them in parallel when possible.
-4. **Run cross-domain analysis** — when both schematic and PCB analysis exist, run `cross_analysis.py --schematic sch.json --pcb pcb.json`. This catches dangerous cross-domain bugs (connector current vs trace width, ESD gaps, decoupling adequacy, schematic/PCB sync).
-5. **Run EMC pre-compliance** — when both schematic and PCB analysis exist, run `python3 <emc-skill-path>/scripts/analyze_emc.py --schematic sch.json --pcb pcb.json` (the script lives in the `emc` skill — not under this skill's `<skill-path>`). This is **required** during design reviews, not optional. The EMC skill runs 44 rule checks covering ground plane integrity, decoupling, switching harmonics, PDN impedance, diff pair skew, ESD paths, and more. Include results in the EMC section of the report.
-6. **Run SPICE simulation** — first run `which ngspice ltspice xyce`. If any simulator is installed, SPICE is **required** before writing the report. Hand off to the `spice` skill: `python3 <spice-skill-path>/scripts/simulate_subcircuits.py sch.json`. This validates filter frequencies, divider ratios, opamp gains, and more against actual simulation results. SPICE takes <1 second on most boards and catches value-computation errors (wrong resistor ratio, wrong cap for cutoff frequency) that no static analyzer finds. If both schematic and PCB analysis exist, run `python3 <spice-skill-path>/scripts/extract_parasitics.py pcb.json --output parasitics.json` (needs the `--full` PCB JSON) and pass `--parasitics parasitics.json` — a path argument, not a bare flag — for high-impedance circuits (>100K feedback dividers, LC filters, RF matching networks). Include results in the Simulation Verification section of the report. **Output schema:** top-level keys are `summary`, `simulation_results`, `workdir`, `total_elapsed_s`, `simulator`. Each entry in `simulation_results[]` has: `subcircuit_type`, `components` (list of refs, e.g. `["R5", "C3"]`), `reference` (joined refs, e.g. `"R5/C3"`), `status` (`pass`/`warn`/`fail`/`skip`), `expected` (dict of metric values), `simulated` (dict of measured values), `delta` (dict of error percentages).
-7. **Run thermal analysis** — when both schematic and PCB analysis exist, run `analyze_thermal.py --schematic schematic.json --pcb pcb.json`. Estimates junction temperatures from package θJA and board thermal via correction. Include results in the Thermal Hotspot section of the report.
-8. **Run lifecycle audit** (when network access and MPNs are available) — invoke via `analyze_schematic.py --lifecycle` flag. Checks component obsolescence status via distributor APIs. Include results in the Component Lifecycle section of the report, or note "Lifecycle audit not performed — [reason: no API keys / no network / no MPNs]."
-9. **Read the `.kicad_pro`** project file directly (it's JSON) for design rules, net classes, and DRC/ERC settings.
-10. **Check for prior design reviews** — scan the project directory for existing review files (`*review*.md`, `*design-review*.md`). If found, read the most recent one. If `auto_diff` is enabled and prior runs exist, run `diff_analysis.py` on current vs previous run and include the delta in the "Previous Review Delta" section.
-11. **Verify each output** against the raw files and datasheets before using the data in your report.
-12. **Produce a unified report** covering schematic analysis, PCB layout analysis, cross-domain findings, EMC risk assessment, simulation verification, thermal hotspots, and cross-reference findings. See `references/report-generation.md` for the report template.
-13. **Disclose all review gaps explicitly** — if thermal, lifecycle, gerber, datasheet extraction, or prior-review delta were not performed, add a short "Not performed / limits" section to the report instead of omitting them silently.
+1. **Identify scope and inputs.** Locate the relevant schematic, PCB, project rules, netlists, and requested fabrication outputs. Establish each board's function, operating limits, interfaces, and review stage; record selected checks and acceptance criteria.
+2. **Obtain needed part evidence.** Use manufacturer datasheets and applicable interface/process documents for the claims being checked (see Datasheet Acquisition below). Raw-file consistency alone cannot establish real-part correctness. Missing evidence for an applicable requirement is a stated gap.
+3. **Collect core circuit/layout data.** Use `analyze_schematic.py` and `analyze_pcb.py` for the scoped files; add `--full` when selected geometry or downstream analysis needs it. For a full board review, inspect relevant `.kicad_pro` rules and native ERC/DRC results. Run `cross_analysis.py --schematic sch.json --pcb pcb.json` when cross-file checks are in scope. Independently triage tool findings.
+4. **Resolve selected domain checks.** Use inspection/calculation first when adequate. Run the relevant tools below for concrete questions that benefit from them; do not execute the list as a mandatory sequence.
+   - **EMC:** For relevant noise, return-path, cable, or ESD risks, use the `emc` skill and `python3 <emc-skill-path>/scripts/analyze_emc.py --schematic sch.json --pcb pcb.json` as appropriate. A formal pre-compliance plan needs an identified product/request basis. SPICE and thermal output are not prerequisites for an ordinary EMC review.
+   - **SPICE:** For a selected simulation question, detect an available simulator with `which ngspice ltspice xyce` and use the `spice` skill. `simulate_subcircuits.py sch.json` can generate testbenches; select relevant types where possible. Extract PCB parasitics with `extract_parasitics.py pcb.json --output parasitics.json` only when they affect the question, then pass `--parasitics parasitics.json`. A supported subcircuit or installed simulator alone does not require simulation. **Output schema:** top-level `summary`, `simulation_results`, `workdir`, `total_elapsed_s`, `simulator`; each result has `subcircuit_type`, `components`, `reference`, `status` (`pass`/`warn`/`fail`/`skip`), `expected`, `simulated`, `delta`.
+   - **Thermal:** Where losses and operating conditions make temperature/current limits relevant, bound them with suitable calculations and part/board evidence. Use `analyze_thermal.py --schematic schematic.json --pcb pcb.json` only as a useful screening aid; its package-based estimates cannot establish board acceptance. State when modeling or physical measurements remain necessary.
+   - **Timing:** Identify the actual protocol, edge/pulse/latency requirement, and routed path before calculating a budget or selecting measurement/simulation. Treat PWM switching limits separately from protocol timing and interchannel skew. Do not invent a length-matching or color-synchronization requirement.
+5. **Check manufacturing/lifecycle when in scope.** Use `analyze_gerbers.py` for fabrication outputs being reviewed or released, and `analyze_schematic.py --lifecycle` for justified procurement/lifecycle checks. Missing release outputs matter for a fabrication-package assessment, not for a schematic-only review.
+6. **Review changes and verify conclusions.** Compare prior evidence for revision reviews, rerun affected checks/dependencies, and cross-check accepted findings against raw files and authoritative part/specification evidence.
+7. **Report the actual decision.** Include board-specific applicability, results, relevant false positives, and remaining applicable gaps. Distinguish calculation, simulation, and hardware measurement. Include only domain sections that support the requested decision; summarize justified exclusions compactly.
 
-The more data sources you combine, the more confident the analysis. A schematic-only review misses layout issues; a PCB-only review misses design intent. Always use everything available.
+Confidence comes from relevant evidence and suitable methods, not analyzer count.
 
 ### Analysis Depth
 
-Default to thorough analysis unless the user asks for a quick review. The reason: the bugs that kill boards are the ones that look correct at a glance. A spot-check might confirm 5 ICs are correct while the 6th has pins 3 and 4 swapped — and that's the one that kills the board. Thoroughness principles:
+Be thorough within the requested scope and the board's applicable requirements. A full design review still needs component/connectivity correctness; a targeted question does not automatically require every analysis domain. Thoroughness principles:
 
 - **Verify all components, not a sample.** Pin-to-net errors on "simple" parts (reversed diode, wrong resistor in a divider, connector with wrong pin ordering) are just as fatal as swapped IC pins. Cover the full design.
 - **Use datasheets as ground truth — not KiCad library symbols.** The analyzer, raw schematic, and KiCad library files all tell you what the design *says* — only the manufacturer's PDF datasheet tells you what it *should* say. A library symbol with a wrong pin mapping is the most dangerous class of bug precisely because everything is internally consistent: schematic, PCB, and analyzer all agree, but the board doesn't work. Verifying a pin assignment against the `.kicad_sym` file is circular — it's the source of the potential error. Download datasheets before starting verification (see "Datasheet Acquisition" below), open the actual PDF for each IC, extract the pin function table, and cite page/section numbers when reporting verification results.
@@ -540,7 +532,7 @@ Also used programmatically by `analysis_cache.should_create_new_run()` to decide
 
 ### Thermal Hotspot Estimation
 
-Estimates junction temperatures of power-dissipating components by combining schematic power data with PCB thermal infrastructure (copper pour, thermal vias, package type). Use when the user says "check thermals", "thermal analysis", "will this overheat", "junction temperature", "power dissipation", or "thermal design".
+Estimates junction temperatures of power-dissipating components by combining schematic power data with PCB thermal infrastructure (copper pour, thermal vias, package type). Select its use from the board's actual losses, temperature limits, and environment, or an explicit thermal request; see [review applicability](references/review-applicability.md). A simple loss bound may adequately close a low-dissipation question. High-current returns, connectors, and joints may need separate checks that this component model does not cover.
 
 ```bash
 # Recommended: integrate into the current run
@@ -567,6 +559,8 @@ Models each power component (LDO, switching regulator, shunt resistor) as a poin
 | TS-005 | Significant power, within safe limits | INFO |
 | TP-001 | MLCC within 10mm of hot component | LOW |
 | TP-002 | Electrolytic cap within 10mm of hot component | MEDIUM |
+
+These are analyzer heuristics, not universal acceptance criteria. Check actual dissipation, ambient/cooling, part-specific ratings and board conditions before accepting their severity. Package lookup values and via-count corrections do not validate a physical temperature or current rating; TI's [thermal metrics guidance](https://www.ti.com/lit/an/spra953d/spra953d.pdf) explains the board dependence of θJA. Record uncertainty and relevant measurement needs.
 
 Thermal findings and assessments include the rich format envelope (detector, rule_id, summary, evidence_source, report_context). Rule IDs: TS-001..005 (safety), TP-001..002 (proximity), TH-DET (assessments).
 
@@ -811,9 +805,12 @@ For probing the raw `.kicad_sch` / `.kicad_pcb` files themselves (not the analyz
 
 ### Quick Review Checklists
 
-**Schematic** — verify: decoupling caps on every IC VCC/GND pair, I2C pull-ups, reset pin circuits, unconnected pins have no-connect markers, consistent net naming across sheets, ESD protection on external connectors, power sequencing (EN/PG), adequate bulk capacitance.
+Build a separate checklist for each PCB using [review applicability](references/review-applicability.md). These are candidate checks, not a universal test suite:
 
-**PCB** — verify: power trace widths for current (IPC-2221), via current capacity, creepage/clearance for high voltage, decoupling cap proximity to IC power pins, continuous ground plane (no splits under signals), controlled impedance traces (USB/DDR), board outline closed polygon, silkscreen readability, thermal via count for every exposed-pad IC (report the count and compare against the datasheet's recommended range — this is one of the most common QFN/DFN layout errors), keepout zone enforcement for copper-sensitive components (touch pads and antennas — confirming copper absence isn't enough because it could be accidental; check that keepout zones exist as DRC rules), differential pair length deltas with protocol-specific tolerance (compute the delta and cite the spec — raw lengths alone don't tell the designer if there's a problem), pad-to-net cross-reference at PCB level for all ICs/transistors/connectors (catches library footprint pin numbering errors that are invisible to DRC/ERC — the most dangerous class of PCB bug). Consider `references/standards-compliance.md` for IPC/IEC standard values — conductor spacing and current capacity are relevant for most boards; creepage/clearance and via protection apply to mains-connected or safety-isolated designs.
+- **Schematic correctness:** fitted-part pinouts, polarity, connectivity, ratings, relevant ERC, and the external components/bias states required by those parts. Add pull-up, reset, decoupling, sequencing, and protection checks only for circuits that have those requirements.
+- **Layout correctness:** schematic agreement, physical pin/pad mapping, relevant DRC, outline/mechanical constraints, and selected fabrication limits. Check current paths against actual loads and copper/connector conditions.
+- **Conditional domains:** select thermal, timing/signal integrity, PWM switching, EMC/ESD, isolation, leakage, and analog checks from their physical mechanisms and authoritative limits. Inspect thermal pads/vias where the part requires them; apply impedance/skew requirements only to the actual interface and operating mode. Follow manufacturer keepout requirements for any fitted antenna/touch structure.
+- **Closure:** state method, acceptance basis, result, and remaining applicable uncertainty. A justified exclusion is not a failure or missing test.
 
 **Common bugs (ranked by board-killing potential)**: swapped IC pins (library symbol vs datasheet pinout — invisible to DRC/ERC), transistor pinout ambiguity (SOT-23 without MPN — symbol assumes a pin ordering that may not match the real part; assess plausibility against common conventions when verification isn't possible), wrong footprint pad numbering, missing nets from un-synced schematic→PCB, wrong package variant (SOT-23 vs SOT-23-5), floating digital inputs, missing bulk caps, reversed polarity, incorrect feedback divider values, wrong crystal load caps, USB impedance mismatch, QFN thermal pad missing vias, connector pinout errors, unusual passive values (a value that's technically valid but uncommon for the application — e.g., a non-standard pull-up resistance, an unusual decoupling capacitor value).
 

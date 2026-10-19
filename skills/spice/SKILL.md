@@ -10,8 +10,9 @@ description: >-
   opamp circuits, crystal oscillators. Also for "simulate my circuit", "run
   spice", "verify with simulation", "check my filter cutoff", "does this
   divider give the right voltage", "what's the bandwidth of this opamp stage".
-  Consider suggesting simulation during design reviews when the schematic
-  analyzer reports simulatable subcircuits and a SPICE simulator is available.
+  During design reviews, select simulation for a concrete circuit question
+  that inspection or calculation does not adequately resolve; simulator
+  availability and detected subcircuits alone do not require it.
 ---
 
 # SPICE Simulation Skill
@@ -31,7 +32,21 @@ This skill inverts the typical simulation workflow: instead of requiring users t
 | `element14` | Parametric specs (international), datasheet downloads |
 | `emc` | EMC pre-compliance — uses this skill's simulator infrastructure for SPICE-enhanced PDN impedance and EMI filter analysis |
 
-**Handoff guidance:** The `kicad` skill's `analyze_schematic.py` produces the analysis JSON with subcircuit detections in the flat `findings[]` array (filtered by `detector` field). This skill reads that JSON, generates SPICE testbenches for simulatable subcircuits, runs the detected simulator (ngspice/LTspice/Xyce), and produces a structured verification report. Always run the schematic analyzer first. During a design review, run simulation after the analyzer and before writing the final report — simulation results should appear as a verification section in the report. The `emc` skill reuses this skill's simulator backend for SPICE-enhanced PDN impedance and EMI filter insertion loss checks — when ngspice is available, the EMC skill's `--spice-enhanced` flag activates these checks automatically.
+**Handoff guidance:** The `kicad` skill's `analyze_schematic.py` produces the analysis JSON with subcircuit detections in the flat `findings[]` array (filtered by `detector` field). This skill reads that JSON, generates testbenches, and runs a detected simulator. For a design review, follow the KiCad skill's [review applicability](../kicad/references/review-applicability.md): identify the PCB, circuit question, model, conditions, and acceptance criterion before selecting simulation. Use the schematic analyzer to supply input when needed; existing valid input can be reused. The `emc` skill can reuse the backend through `--spice-enhanced` when its selected PDN/filter question benefits from simulation. Neither skill requires the other to run by default.
+
+## When Simulation Adds Evidence
+
+Use simulation when requested, or when dynamics, loading, stability, resonance,
+switching transients, or tolerance interactions leave a decision-relevant
+question unresolved. Inspection, arithmetic, or conservative tolerance bounds
+may adequately verify a simple divider or similar circuit. Do not simulate
+every supported subcircuit merely because a simulator is installed.
+
+Select relevant subcircuit types using `--types` where supported, and report
+only results that address the selected requirement. Check the generated
+topology and model against the actual circuit. Ideal/behavioral models may
+omit startup, protection, parasitics, and temperature effects; simulated
+agreement with the same equation is not independent physical verification.
 
 ## Requirements
 
@@ -43,7 +58,7 @@ This skill inverts the typical simulation workflow: instead of requiring users t
 - **Python 3.10+** — stdlib only, no pip dependencies
 - **Schematic analyzer JSON** — from `analyze_schematic.py --output`
 
-If no simulator is installed, skip simulation gracefully and note it in the report. Do not treat a missing simulator as an error — it's an optional enhancement.
+If a selected simulation cannot run, use another adequate method where possible. If the underlying requirement remains unresolved, record that gap and its effect on the requested decision. A missing simulator is neither a failure of the circuit nor a reason to silently clear an applicable requirement.
 
 ## Workflow
 
@@ -82,7 +97,7 @@ python3 <skill-path>/scripts/simulate_subcircuits.py --analysis-dir analysis/ --
 
 ### Step 2b (optional): PCB parasitic-aware simulation
 
-When both schematic and PCB exist, run parasitic-annotated simulation for more accurate results on analog circuits:
+When a selected question depends on PCB parasitics and suitable schematic/PCB inputs exist, run parasitic-annotated simulation:
 
 ```bash
 # Analyze PCB with full trace segment detail
@@ -97,7 +112,7 @@ python3 <skill-path>/scripts/simulate_subcircuits.py analysis.json --parasitics 
 
 With `--parasitics`, testbenches include trace resistance and via inductance between components. The report shows the parasitic impact — e.g., "48mΩ trace resistance shifts RC filter fc down 0.3%."
 
-**When to use parasitic simulation:** Consider it when the design has high-impedance feedback networks (>100kΩ), LC filters or RF matching networks, long analog signal traces, or high-frequency circuits where trace inductance matters. For typical digital designs with low-impedance power regulation, the ideal simulation is sufficient.
+**When to use parasitic simulation:** Select it when estimated trace/via effects could change acceptance for the actual circuit, such as a sensitive feedback network, resonant filter, or long fast-edge path. Assess geometry, impedance, and operating conditions; a resistance threshold, circuit label, or the existence of a PCB alone does not establish need. Ideal models are adequate only for the specific effects they represent.
 
 ### Step 2c (optional): Monte Carlo tolerance analysis
 

@@ -6,36 +6,29 @@ Guide for producing comprehensive design review reports from analyzer output + r
 
 This reference is not optional reading for full design reviews. If the user asks for a complete review, ready-to-fab assessment, or comprehensive report, the resulting report must satisfy this minimum contract:
 
-1. Name the analyzers that were actually run.
-2. Name the applicable analyzers that were not run, and why.
+1. Identify each PCB/revision, its relevant operating conditions, review stage, and requested decision. Use [review applicability](review-applicability.md) to select checks from the actual circuit.
+2. For selected checks, state the failure mode/requirement, acceptance basis, method, and result. Name tools actually run and any remaining applicable verification that was not completed; another adequate method may close a requirement without an analyzer.
 3. Separate verified findings from inference-only findings.
 4. Put blockers and warnings near the top.
 5. Triage obvious false positives instead of repeating analyzer output unfiltered.
-6. State verification gaps explicitly when datasheets, thermal, lifecycle, gerbers, or prior-review delta were not available.
+6. Separate justified exclusions from unresolved inputs, outside-scope work, and incomplete applicable checks. Explain which gaps limit the requested decision. File/tool availability alone does not make a check applicable.
 
 If the review does not meet this contract, it is an incomplete review, not a full one.
 
-## Required Sections for Full Reviews
+## Report Sections Follow Applicability
 
-These sections are expected in a complete design review unless genuinely not applicable:
+A full review needs board/scope identification, a compact applicability assessment,
+findings and evidence, remaining applicable gaps, and a verdict tied to the
+requested decision. Include a prior-review delta when reviewing a revision and
+reviewer overrides when findings were dismissed or downgraded.
 
-- Overview
-- Previous Review Delta, when a prior review or prior runs exist
-- Critical Findings
-- Component Summary
-- Power Tree
-- Analyzer Verification
-- Deep Review, when `analysis/deep_review.json` exists
-- Signal Analysis Review
-- Power Analysis
-- PCB Layout Analysis, when a PCB exists
-- Thermal Analysis or an explicit note that thermal analysis was not performed
-- EMC / Cross-Domain Analysis when schematic and PCB both exist
-- Component Lifecycle or an explicit note that lifecycle audit was not performed
-- Manufacturing / DFM / testability
-- False Positives / reviewer overrides
-- Not Performed / Review Limits
-- Final verdict / readiness statement
+The domain sections in the template below are a menu. Include power, thermal,
+timing/signal integrity, EMC, simulation, manufacturing, or lifecycle sections
+only where they support the selected checks. Do not create a mandatory thermal
+or lifecycle chapter to apologize for an unneeded analyzer. A compact row can
+record a justified exclusion. An applicable requirement closed by inspection
+or calculation does not require simulation or a physical test solely to fill
+the report. Preserve actual evidence gaps when acceptance depends on them.
 
 ## Evidence Basis Rules
 
@@ -49,19 +42,23 @@ Every substantive finding should make its evidence basis clear. Use these catego
 
 Do not use the word "verified" for analyzer-only or inference-only claims.
 
-## Skipped Analysis Disclosure
+## Applicability and Incomplete Verification
 
-If any applicable analysis was not run, include a short section in the report that says so explicitly. Do not bury omissions in prose or leave them unstated.
+For each selected requirement, state how it was resolved or what remains open.
+Disclose incomplete applicable verification. Keep justified exclusions and work
+outside the requested scope distinguishable; do not label them failed tests.
+Missing operating data cannot justify a "not applicable" decision.
 
 Recommended format:
 
 ```markdown
-## Not Performed / Review Limits
+## Applicability / Review Limits
 
-- Thermal analysis not performed — reason.
-- Lifecycle audit not performed — reason.
-- Gerber analysis not performed — no fabrication outputs present.
-- Datasheet extraction not available — pin-level checks are datasheet-manual or inference-only.
+- [PCB/revision, selected requirement] — closed by [inspection/calculation/simulation/measurement], using [evidence and limit].
+- [PCB/revision, selected requirement] — applicable but open: [missing evidence/check and effect on requested readiness].
+- [PCB/revision, domain] — not applicable: [circuit evidence that the mechanism/requirement is absent].
+- [PCB/revision, domain] — unresolved applicability: [missing operating condition].
+- [PCB/revision, relevant question] — outside requested scope: [boundary].
 ```
 
 ## False-Positive Triage
@@ -88,7 +85,7 @@ If a finding was reviewed and judged benign, keep it in a "False Positives / Rev
 
 ## Report Structure
 
-Use this template. Include sections that are relevant to the design — skip sections that genuinely don't apply (a battery-powered sensor board doesn't need an isolation barrier section). For sections where the analyzer returned empty data, briefly assess whether that's expected ("no mains input, creepage N/A") or a gap worth noting ("no ESD protection detected on external USB connector").
+Use the relevant parts of this template. Decide from the actual circuit and requirements; labels such as "battery powered" or "simple" do not by themselves exclude isolation or timing needs. Empty analyzer data may reflect an absent mechanism or a detection gap; establish which using raw circuit and part evidence. Keep separate PCBs distinguishable, and do not pad a focused review into the full template.
 
 ```markdown
 # [Project Name] Design Review
@@ -99,6 +96,13 @@ Use this template. Include sections that are relevant to the design — skip sec
 
 ## Overview
 [2-4 sentence description of the board: MCU, power architecture, key peripherals, domain (IoT/motor control/RF/instrumentation/etc.), form factor context]
+
+## Board Scope and Check Selection
+[Per PCB/revision: intended decision, relevant supply/current paths, interfaces and operating modes, load, ambient/cooling, and evidence sources.]
+
+| PCB/revision | Circuit evidence | Failure mode / requirement | Method | Acceptance criterion / source | Disposition / result |
+|---|---|---|---|---|---|
+| [board] | [refs/nets/conditions] | [specific requirement] | [inspection/calculation/simulation/measurement] | [limit/source] | [applicability and result or open gap] |
 
 ## Previous Review Delta
 [**Include when prior review files or analyzer JSON exist in the project directory.** Scan for `*review*.md`, `*design-review*.md`, and prior `*_analysis.json` files.
@@ -233,7 +237,7 @@ was skipped or degraded (no datasheets), state the per-IC gaps here.
 ## Power Analysis
 
 ### PDN Impedance
-[Per-rail impedance profile (1kHz–1GHz), key impedance points, anti-resonances, SRF gaps, MLCC parasitic modeling]
+[Include when rail transient/noise requirements or uncertain resonances justify it. Select rails and frequency range from actual loads and switching/edge behavior; compare against a sourced voltage-noise/transient budget. An automated 1kHz–1GHz sweep is not a universal requirement.]
 
 ### Power Budget
 [Per-rail load estimates vs regulator capacity, flag any overloaded rails, regulator headroom]
@@ -252,25 +256,25 @@ was skipped or degraded (no datasheets), state the per-IC gaps here.
 - Source impedance: connector resistance, wire gauge, trace resistance — these limit peak inrush naturally
 - Series resistance or soft-start mechanisms (or lack thereof)
 - Multiple rails energizing simultaneously (total system inrush vs supply capability)
-[Even designs with no regulators need this section — external supply rails still charge decoupling caps through IC supply pins at power-on. Check each IC's datasheet for absolute maximum continuous current through VCC/GND pins.]
+[Include when startup current/stored energy can challenge the source, connector, switching element, or downstream device. Trace capacitor charging through its actual supply wiring; do not assume external decoupling current passes through an IC's supply pin. An absent regulator neither establishes nor excludes an inrush problem.]
 
 ### Voltage Derating
 [Component voltage ratings vs applied voltages, capacitor derating at operating voltage]
 
 ## Standards Compliance
-[Include when applicable — see `references/standards-compliance.md` for auto-trigger conditions and tables. Consider for all boards: even low-voltage designs benefit from a brief conductor spacing and current capacity check. For mains-connected or safety-isolated designs, this section is mandatory.]
+[Select the relevant parts of `standards-compliance.md` from actual current, spacing, insulation, manufacturing, or product requirements. Establish the applicable standard/edition and conditions before using its limits. Layer count or an application label alone does not require a full standards campaign.]
 
 ### Product Classification
-[Class 1/2/3 determination with rationale from BOM indicators]
+[Use the actual product/assembly requirements and their authoritative source. Do not infer an IPC class or product safety classification from BOM indicators alone.]
 
 ### Conductor Spacing (IPC-2221A Table 6-1)
 [High-voltage net pairs with required vs actual spacing. Skip for designs where all nets are ≤15V and traces meet minimums.]
 
 ### Current Capacity (IPC-2221A / IPC-2152)
-[Power traces: expected current, trace width, copper weight, calculated capacity, margin. Flag <50% margin as WARNING, <20% as CRITICAL.]
+[Relevant paths: continuous/pulse and simultaneous current, bottleneck geometry, copper thickness, vias, joints/connectors, temperature-rise allowance, calculation/model assumptions, and margin. Use applicable manufacturer/process/standard evidence. Assign severity from the actual limit and consequence; generic percentage margins alone do not establish a failure.]
 
 ### Creepage/Clearance (ECMA-287 / IEC 60664-1)
-[Only for mains-connected or safety-isolated designs. Working voltage, OVC, pollution degree, material group, required vs actual distances.]
+[Include where actual voltage, insulation boundaries, environment, or product requirements require it. Establish the applicable standard/edition, working/transient voltage, overvoltage category, pollution degree, material group, and required vs actual distances. A mains/non-mains label alone is not an applicability decision.]
 
 ### Annular Ring (IPC-2221A Table 9-2)
 [Via annular ring analysis, fab capability vs IPC minimums]
@@ -325,17 +329,17 @@ was skipped or degraded (no datasheets), state the per-IC gaps here.
 ### Signal Integrity
 [Layer transitions per net, ground return path assessment, trace proximity/crosstalk (with --proximity flag)]
 
-Differential pair length matching: For each detected differential pair (USB D+/D-, Ethernet TX+/TX-, etc.), compute the length delta between the two traces and cite the protocol-specific tolerance. The delta and tolerance are more useful than the raw lengths alone — they tell the designer whether there's margin or a problem. Example format: "D+=75.8mm, D-=75.2mm (delta=0.6mm — within USB 2.0 FS tolerance of ±25mm)." For interfaces with tighter requirements: USB 3.x ±3mm, HDMI ±2mm, DDR ±0.5mm.
+Timing/skew checks apply to actual routed interfaces with a relevant timing or signal-integrity requirement. Confirm the device, protocol revision/mode, edge rate, loading, and allowed budget before evaluating route delay, mismatch, or impedance. Cite the real device/interface requirement; do not use a universal mm/ps allowance for all USB, Ethernet, DDR, or other protocol variants. A suffix-based pair detection is a candidate, not proof of a requirement. Independent analog PWM channels do not need relative edge alignment unless the circuit/application specifies it; check their switching/pulse limits separately.
 
 ### Power & Ground
 [Power net routing summary (width, length, current capacity), ground domain identification (AGND/DGND/PGND), zone stitching via density]
 
 ### Thermal Analysis
-[Thermal pad detection, via counting and adequacy for QFN/DFN packages, zone stitching density, thermal relief settings, tombstoning risk assessment (0201/0402 thermal asymmetry). Cross-reference thermal via count and pad area against each IC's datasheet thermal management section — check recommended via count, via diameter, and exposed pad connection. Verify θJA assumptions match the datasheet's specified board conditions (e.g., JEDEC 2s2p vs actual layer count).
+[Include where losses, environmental conditions, part requirements, or current density justify thermal verification. Start with losses and the relevant temperature/current limit; a bounded low-loss result may close the question without a thermal simulator. Include connectors, joints and common returns where relevant. Separate assembly solderability/tombstoning observations from operating-temperature acceptance.
 
-When `analyze_thermal.py` was run, include its junction temperature estimates (Tj per component, margin to Tj_max, thermal score). Cross-reference against datasheet Tj_max values. When the thermal script was not run, estimate manually from power dissipation and package θJA for components with significant power draw (regulators, drivers, power FETs).]
+When `analyze_thermal.py` was useful, label its output as heuristic screening and check dissipation and board/cooling assumptions. Package-average θJA and generic via corrections alone cannot establish the physical temperature or current rating. State applicable manufacturer limits, uncertainty, and any remaining measurement requirement.]
 
-For every IC with an exposed/thermal pad, explicitly report the via count and adequacy in this format: "[Ref] pad [N] ([net]) connected through [count] thermal vias (recommended range: [min]–[max] per datasheet) — [adequate/insufficient]." Example: "U1 pad 41 (GND thermal pad) connected through 12 thermal vias (recommended range: 9–16) — adequate." The thermal via count is one of the most common QFN/DFN layout errors and is always worth calling out with a specific number, even when adequate — it confirms the designer got it right.
+For parts requiring an exposed-pad connection or thermal structure, verify the actual datasheet layout requirement. Report pad/net, geometry, and via count where those support the check, including footprint-embedded vias. A generic QFN label or via count alone does not establish adequacy or severity; do not invent a manufacturer's recommended range.
 
 ### Copper Presence
 [Zone copper at component pad locations — from `copper_presence` section. Focus on `no_opposite_layer_copper` list: which components lack zone copper on the opposite layer? Verify this is intentional for capacitive touch pads and antennas (need isolation) vs unexpected for other components (might indicate a zone gap). Also note `same_layer_foreign_zones` — pads sitting on zones they're not connected to, which is normal for tightly-packed power island zones but worth flagging if unexpected.]
@@ -431,7 +435,7 @@ This verification must happen at the PCB pad level, not just the schematic pin l
 [Components likely simulatable vs needing SPICE models, coverage percentage]
 
 ### Ordering Notes
-[Practical manufacturing summary for ordering — this section bridges the design review and the fabrication order. Extract surface finish from the PCB stackup (`copper_finish` field in setup section), solder mask color from board setup, and board thickness from the stackup layer sum. Designers use this to configure their PCB order, so always include it when a PCB was analyzed.]
+[Include for an ordering/fabrication-readiness request. Extract surface finish from the PCB stackup (`copper_finish` field in setup section), solder mask color from board setup, and board thickness from the stackup layer sum where available. Do not add an ordering exercise to an unrelated circuit review.]
 - Layer count: [N] layers, surface finish: [HASL/ENIG/OSP — from PCB stackup `copper_finish`], solder mask color: [green/black/etc. — from board setup]
 - Stencil: [recommend if SMD components present, note if fine-pitch requires frameless stencil]
 - Board thickness: [standard 1.6mm or custom — from stackup total thickness]
@@ -452,9 +456,9 @@ This verification must happen at the PCB pad level, not just the schematic pin l
 ## Positive Findings
 [Numbered list of things the design does well — builds designer confidence and validates good practices. Examples:]
 1. All ICs have local decoupling capacitors within 3mm — good EMC practice
-2. USB differential pairs are length-matched within 0.2mm — well within USB 2.0 spec (25ps)
+2. The routed interface meets the fitted device's sourced skew/impedance budget in its actual operating mode [show evidence and margin]
 3. Feedback divider values for U3 (TPS61023) match the datasheet application circuit exactly (590K/200K → 2.37V)
-4. Thermal vias under QFN packages: U1 has 9 vias (TI recommends 6-9) — adequate thermal path
+4. U1's required exposed-pad connection and board thermal structure meet the fitted part's cited layout requirements [show the relevant geometry and evidence]
 
 ## Analyzer Gaps
 [Numbered list of things the analyzer missed, got wrong, or couldn't detect — transparency about tool limitations. Examples:]
@@ -592,7 +596,7 @@ Quick reference for what each analyzer produces, to ensure no analysis dimension
 
 Use these consistently across all reports:
 
-- **CRITICAL**: The board will not function as designed, or there is a safety/damage risk. Examples: swapped pins in symbol library, output contention from shorted op-amp outputs, regulator can't start, missing power path, thermal pad without ground vias on QFN.
+- **CRITICAL**: Evidence establishes a failure of intended function or a safety/damage risk. Examples: verified swapped pins, output contention, a regulator that cannot start in its required operating range, or a missing required power path. A heuristic violation or missing thermal vias alone does not establish this severity; tie it to the actual part requirement, conditions, and consequence.
 - **WARNING**: The board may work but has a reliability, performance, or compliance concern. Examples: floating digital inputs, missing flyback diode on inductive load, cross-domain signal without level shifter, inadequate decoupling, regulator thermal margin tight.
 - **SUGGESTION**: Best-practice improvement or documentation gap that doesn't affect functionality. Examples: missing MPNs, no test points on power rails, DNP components not marked, footprint filter mismatch with custom library.
 
@@ -647,7 +651,7 @@ Focus on: RF chain path tracing through switches, LNA/mixer/filter identificatio
 Focus on: op-amp configurations and gain accuracy, reference voltage chain, input protection on measurement channels, ADC/DAC interface verification, PGA detection, bipolar supply generation, guard traces.
 
 ### Industrial / Multi-rail
-Focus on: power sequencing (EN/PG chains from analyzer), input protection (TVS, MOV, fuses), communication buses (CAN, RS485, Ethernet — check bus analysis), isolation barriers, creepage/clearance for high voltage. The Standards Compliance section in the report template is especially important here — fill in all subsections including creepage/clearance.
+Select checks from the fitted circuits and operating environment: sequencing where rails/devices require it, protection for actual exposed paths, communication requirements for the fitted buses, and insulation/spacing where voltage and product requirements justify them. An industrial or multi-rail label alone does not require every standards subsection.
 
 ## Cross-Referencing with Raw Schematic
 
@@ -685,12 +689,4 @@ This section bridges the design review into the ordering workflow — the `jlcpc
 
 ## Report Length Guidelines
 
-Typical report lengths by design complexity:
-
-| Design | Components | Typical Report |
-|--------|-----------|---------------|
-| Simple (IoT, single sheet) | 30-100 | 150-250 lines |
-| Medium (motor control, few sheets) | 100-300 | 200-350 lines |
-| Complex (DAQ, RF, many sheets) | 300-700 | 300-450 lines |
-
-Keep it thorough but avoid padding. Every line should provide information the designer can act on or use to build confidence in the design.
+Scale the report to applicable requirements, evidence, unresolved risk, and the requested decision. There is no minimum line count or mandatory chapter for every analyzer. A simple board can have a short complete review; a small high-current or fast-edge circuit can require deeper evidence. Keep passing checks and exclusions compact.

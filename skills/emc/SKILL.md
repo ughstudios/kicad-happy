@@ -20,7 +20,7 @@ description: >-
 
 Automated EMC risk analysis for KiCad PCB designs. Identifies the most common causes of EMC test failures using geometric rule checks, analytical emission formulas, and optional SPICE simulation.
 
-**This is a risk analyzer, not a compliance predictor.** It catches ~70% of common EMC design mistakes before fabrication. It cannot guarantee FCC/CISPR compliance — only a calibrated measurement in an accredited lab can do that. But it can reduce the first-spin failure rate from ~50% toward ~20-30%, potentially saving $5K-$50K per avoided board respin.
+**This is a risk analyzer.** Its geometric rules and simplified models identify candidate concerns that need circuit-specific review. Scores and rule severities do not establish a compliance outcome. A compliance claim needs evidence appropriate to the actual product, test configuration, and applicable standard.
 
 ## Related Skills
 
@@ -30,7 +30,26 @@ Automated EMC risk analysis for KiCad PCB designs. Identifies the most common ca
 | `kicad` (thermal) | Thermal hotspot analysis — MLCC derating and ferrite/inductor overheating findings can amplify EMC decoupling and filter issues (an over-stressed MLCC degrades; a hot ferrite drifts impedance). Worth cross-checking when EMC flags DC-001/DC-002 or EF-001/EF-002. |
 | `spice` | SPICE simulation — provides simulator backend for SPICE-enhanced PDN/filter checks |
 
-**Handoff guidance:** Run the `kicad` skill's `analyze_schematic.py` and `analyze_pcb.py` first — this skill consumes their JSON output. Use `--full` on the PCB analyzer for best results (enables per-track coordinates for ground plane crossing, edge proximity, and return path checks). During a design review, run EMC analysis after the schematic/PCB analyzers, SPICE simulation, and thermal analysis, then incorporate EMC findings into the report.
+**Handoff guidance:** Follow the KiCad skill's [review applicability](../kicad/references/review-applicability.md) separately for each PCB/revision. Use schematic/PCB JSON as inputs when the selected review benefits from this analyzer; `--full` provides geometry for return-path and proximity checks. SPICE and thermal analysis are not prerequisites. Reuse their evidence only when it bears on the selected EMC question.
+
+## Select the Relevant EMC Checks
+
+Identify the actual noise source, coupling/discharge path, victim, and operating
+conditions before adopting a rule finding. Switching edges, external cables,
+exposed I/O, radios, and sensitive analog circuits can justify focused checks.
+Clock/pair names, file availability, or a default score alone do not.
+
+A full pre-compliance campaign, target standard, or laboratory test plan needs
+a basis in the product requirements or user request. The script's default
+standard and market mappings are tool settings; confirm their applicability
+before treating them as product obligations. Basic return-path/ESD inspection
+can be adequate for the selected review without a full analyzer campaign.
+
+The tool may run broad rule categories. Filter and triage their findings against
+the actual board assessment before reporting blockers. "Not applicable" needs
+circuit evidence; missing edge rate, cable, or operating data leaves uncertainty.
+Select `--spice-enhanced` only when its models help answer a concrete PDN/filter
+question. Available simulation infrastructure does not require its use.
 
 ## Requirements
 
@@ -158,8 +177,8 @@ Read the JSON report and incorporate findings into the design review. Each findi
 
 | Severity | Meaning | Action |
 |----------|---------|--------|
-| **CRITICAL** | Almost certain to cause EMC failure | Must fix before fabrication |
-| **HIGH** | Very likely to cause issues | Strongly recommend fixing |
+| **CRITICAL** | Tool flags a potentially severe mechanism | Confirm applicability, conditions, and consequence before assigning a blocker |
+| **HIGH** | Tool flags an elevated concern | Verify against actual circuit and requirements; prioritize justified fixes |
 | **MEDIUM** | May cause issues depending on specifics | Review and assess |
 | **LOW** | Minor risk, good practice | Fix if convenient |
 | **INFO** | Informational — frequencies, estimates | Useful for lab prep |
@@ -168,19 +187,19 @@ Read the JSON report and incorporate findings into the design review. Each findi
 
 Each rule ID contributes at most 3 findings to the score (worst severity first). This prevents per-net rules like GP-001 from saturating the score on 2-layer boards. All findings are still reported — only the score is capped.
 
-`penalty = sum(worst 3 per rule × severity weight)`, `score = max(0, 100 - penalty)`. Scores below 50 indicate significant EMC risk.
+`penalty = sum(worst 3 per rule × severity weight)`, `score = max(0, 100 - penalty)`. This is a heuristic prioritization score. Its numeric threshold does not establish failure, acceptance, or a reason to test an unrelated circuit.
 
 ## Interpreting Results
 
-**Ground plane findings** — Any CRITICAL finding (signal crossing a void) is almost always a real problem. Fix unconditionally.
+**Ground plane findings** — Check the actual return path, edge content, load, geometry, and victim before accepting a void-crossing flag. A geometric rule alone does not make every slow control trace a fabrication blocker.
 
 **Decoupling findings** — Distance-based findings have moderate false positive rates. A cap at 6mm may be fine for a low-speed IC but problematic for a 100MHz clock buffer. Use frequency context to prioritize.
 
 **I/O filtering** — Highly relevant for cable-connected products. For board-to-board connections inside an enclosure, the risk is lower.
 
-**Diff pair findings** — Protocol-specific skew limits are well-defined. USB HS (25ps), PCIe (5ps), Ethernet (50ps). Findings exceeding these limits are real issues.
+**Diff pair findings** — Confirm the actual interface, device, protocol revision/mode, and budget against authoritative documentation. Generic protocol names and fixed ps/mm allowances do not establish acceptance across variants.
 
-**PDN findings** — Anti-resonance peaks are real and cause voltage droop. SPICE-verified findings are more accurate than analytical. If a peak is flagged, add a capacitor with SRF near the peak frequency.
+**PDN findings** — Check model fidelity and whether load excitation overlaps a predicted peak sufficiently to violate a voltage/noise requirement. Assess damping and the proposed component change before recommending more capacitance. A simulated peak alone does not establish actual droop or guarantee that an added capacitor helps.
 
 **Emission estimates** — Order-of-magnitude estimates (±10-20 dB). Use them to prioritize frequency bands for pre-compliance testing, not to predict pass/fail.
 
